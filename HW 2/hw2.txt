@@ -1,0 +1,106 @@
+CSE508: Network Security, Spring 2024
+
+Homework 2: Network Monitoring with Scapy
+-------------------------------------------------------------------------------
+
+Submission deadline: 3/8/2024 11:59pm EDT
+Submission site: https://mycourses.stonybrook.edu/d2l/home/1135717
+
+
+In this assignment you will get familiar with the Scapy network traffic
+capture/analysis/generation framework, and use it to develop two simple
+network monitoring tools. As a minimum, your tools should work on Linux - you
+are welcome to implement and test support for other platforms (Python makes
+this easy). Both tools will be tested on the 64-bit Kali Linux 2023.4 virtual
+machine, so make sure your code works in this environment:
+https://www.kali.org/get-kali/#kali-virtual-machines
+
+
+1) HTTP/TLS connection monitoring
+
+Your program should conform to the following specification:
+
+mysniffer.py [-i interface] [-r tracefile] expression
+
+-i  Live capture from the network device <interface> (e.g., eth0). If not
+    specified, the program should automatically select a default interface to
+    listen on. Capture should continue indefinitely until the user terminates
+    the program.
+
+-r  Read packets from <tracefile> (tcpdump format). Useful for analyzing
+    network traces that have been captured previously.
+
+The optional <expression> argument is a BPF filter that specifies a subset of
+the traffic to be monitored (similar to tcpdump).
+
+Your tool should perform the following operations:
+
+1) For HTTP traffic, it should parse GET and POST requests and print the
+method used (GET or POST), the destination host name contained in the "Host:"
+HTTP header (e.g., "www.cs.stonybrook.edu"), and the Request URI.
+
+2) For TLS traffic, it should parse the Client Hello message and print the TLS
+version number, and the destination host name (e.g., "www.cs.stonybrook.edu")
+that is present in the Server Name Indication field.
+
+For both HTTP and TLS, it should also print a timestamp and the source and
+destination IP addresses and ports.
+
+Example output:
+
+2020-02-04 13:14:33.224487 HTTP 192.168.190.128:57234 -> 23.185.0.4:80 www.cs.stonybrook.edu GET /research/area/Security-and-Privacy
+2020-02-04 13:14:24.494045 TLS v1.3 192.168.190.128:59330 -> 104.244.42.193:443 google.com
+
+Your tool should be able to recognize HTTP and TLS traffic *irrespectively* of
+the destination port number used. It is possible that "hidden" HTTP/TLS
+servers may be listening to ports other than 80/443, and your tool will be
+useful for detecting them.
+
+You are *not* required to perform any form of TCP stream reassembly. For your
+implementation, it is sufficient to just parse each TCP packet individually.
+
+
+2) ARP cache poisoning detector
+
+You are going to develop a simple ARP poisoning attack detector named
+'arpwatch.py'. At startup, the tool will read the current ARP cache entries of
+the host system, and consider them as the ground truth. Then, it will
+passively monitor the ARP traffic and print a warning message whenever an
+existing MAC-IP binding changes - something like the following:
+
+10.0.0.1 changed from 24:a4:3c:b3:15:23 to 00:50:56:9f:e6:8a
+
+Your program should conform to the following specification:
+
+arpwatch.py [-i interface] 
+
+-i  Live capture from the network device <interface> (e.g., eth0). If not
+    specified, the program should automatically select a default interface to
+    listen on. Capture should continue indefinitely until the user terminates
+    the program.
+
+
+What to submit:
+
+A tarball (.tar.gz) with:
+- The two python tools, named 'mysniffer.py' and 'arpwatch.py'
+- an ASCII file named README with a brief description of your programs and
+  some example output from test runs of each program. In particular, for
+  arpwatch.py, the output should include at least one actual detected attack
+  attempt (you can generate ARP poisoning attacks using the 'arpspoof' tool).
+
+
+Hints
+
+- Scapy has great online documentation:
+  https://scapy.readthedocs.io/en/latest/
+
+- Scapy does not load by default all available parsers. Check out
+  load_layer("http") and load_layer("tls"). You may have to "import
+  cryptography" for the TLS parser to work properly.
+
+- Generating ARP spoofing or other attack network traffic on real networks is
+  not a good idea. An easy way to test arpwatch.py is using two hosts: the
+  attacker can be either your real machine or a VM, and the victim can be a
+  different VM. In both cases, arpwatch.py should run on the victim VM and
+  should detect the ARP spoofing attack.
