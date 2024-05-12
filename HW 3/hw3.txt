@@ -1,0 +1,169 @@
+CSE508: Network Security, Spring 2024
+
+Homework 3: Jump Proxy
+-------------------------------------------------------------------------------
+
+Submission deadline: 4/12/2024 11:59pm EDT
+Submission site: https://mycourses.stonybrook.edu/d2l/home/1135717
+
+
+In this assignment you will develop a "jump" proxy for adding an extra layer
+of protection to publicly accessible TCP services. Your program will be
+written in Go using the Crypto library.
+
+Consider for example the case of an SSH server with a public IP address. No
+matter how securely the server has been configured and how strong the keys
+used are, it might suffer from a "pre-auth" zero day vulnerability that allows
+remote code execution even before the completion of the authentication
+process. This could allow attackers to compromise the server even without
+providing proper authentication credentials.
+
+The jump proxy you are going to develop, named 'jumproxy', adds an extra layer
+of encryption to connections towards TCP services. Instead of connecting
+directly to the service, clients connect to jumproxy (running on the same
+server that hosts the service), which then relays all traffic to the actual
+service. Before relaying the traffic, jumproxy always decrypts it using a
+static symmetric key. This means that if the data of any connection towards
+the protected server is not properly encrypted, then the server will terminate
+the connection.
+
+This is a better option than changing the port number of the SSH server, port
+knocking,  and other similar security-by-obscurity solutions, as attackers who
+might want to exploit a zero day vulnerability in the protected service would
+first have to know the secret key for having a chance to successfully deliver
+their attack vector to the server. This of course assumes that the jump proxy
+does not suffer from any vulnerability itself. Given that its task and its
+code are much simpler compared to an actual service (e.g., an SSH server), and
+thus its code can be audited more easily, it can be more confidently exposed
+as a publicly accessible service. Furthermore, Go is a memory-safe language
+that does not suffer from memory corruption bugs.
+
+Clients who want to access the protected service should proxy their traffic
+through a local instance of jumproxy, which will encrypt the traffic using the
+same symmetric key used by the server. In essence, jumproxy acts both as a
+client-side proxy (when the '-l' option is not provided) and as server-side
+reverse proxy (when the '-l' option is provided), in a way similar to netcat.
+
+Your program should conform to the following specification:
+
+go run jumproxy.go [-l listenport] -k pwdfile destination port
+
+  -l  Reverse-proxy mode: listen for inbound connections on <listenport> and
+      relay them to <destination>:<port>
+
+  -k  Use the ASCII text passphrase contained in <pwdfile>
+
+* In client mode, jumproxy reads/writes plaintext traffic from/to stdin/stdout
+  and transmits/receives it in encrypted form to/from <destination>:<port>
+
+* In reverse-proxy mode, jumproxy should continue listening for incoming
+  connections after a previous connection is terminated, and it should be able
+  to handle multiple concurrent sessions (all using the same key).
+
+* Data should be encrypted/decrypted using AES-256 in GCM mode in both
+  directions. You should derive an appropriate AES key from the supplied
+  passphrase using PBKDF2.
+
+Going back to the SSH example, let's see how jumproxy can be used to protect
+an SSH server. Assume that we want to protect a publicly accessible sshd
+running on 192.168.0.123. First, we should configure sshd to listen *only* on
+the localhost interface, making it inaccessible from the network. Then, we
+fire up a reverse jumproxy instance on the same host, listening on port 2222,
+and forwarding all traffic to localhost:22 (i.e., the locally running sshd):
+
+  server> jumproxy -k mykey -l 2222 localhost 22
+
+Clients can then connect to the SSH server using the following command:
+
+  client> ssh -o "ProxyCommand jumproxy -k mykey 192.168.0.123 2222" localhost
+
+This will result in the following data flow:
+
+ssh <--stdin/stdout--> jumproxy <--socket 1--> jumproxy <--socket 2--> sshd
+\_____________________________/                \__________________________/
+             client                                       server           
+
+Socket 1 (encrypted):  client:randomport <-> 192.168.0.123:2222
+Socket 2 (plaintext): localhost:randomport <-> localhost:22
+
+To test your end-to-end setup, before writing any code at all, you can achieve
+a similar data flow using netcat instead of jumproxy. First, make sure the
+client and server can communicate through netcat (ensure that no firewall/NAT
+blocks port 2222 from receiving connections).
+
+  server> nc -l -p 2222
+  client> nc 192.168.0.123 2222
+
+Then tunnel SSH over netcat:
+
+  sevrer> nc -l -p 2222 -c 'nc localhost 22'
+  client> ssh -o "ProxyCommand nc 192.168.0.123 2222" user@localhost
+
+You can even use the same host as both the client and the server, so that you
+can test everything on a single machine (e.g., the Kali Linux VM you have
+previously used):
+  
+  Kali console 1> nc -l -p 2222 -c 'nc localhost 22'
+  Kali console 2> ssh -o "ProxyCommand nc localhost 2222" kali@localhost
+
+Once the above works, you just have to replace netcat with jumproxy.
+
+
+What to submit:
+
+A tarball (.tar.gz) with all required source code files and a short report
+(ASCII text file is fine) with a brief description of your implementation.
+
+
+Hints:
+
+1) Mind your nonces!
+
+2) Make sure you don't print any debug info in stdin/stdout, as in client mode
+this will interfere with the transmitted data. Use stderr, or even better, a
+dedicated log file.
+
+3) SSH is a binary protocol, so you should treat all I/O as raw binary bytes.
+Do not make any assumptions about strings, line endings, etc.
+
+4) Make sure to flush send/receive buffers, if needed. If there are bytes
+available, in either direction, the program should transmit them immediately.
+Make sure both directions of the stream can read/write data at any time.
+
+5) It is advisable to test each component/functionality separately, before
+putting everything together. For example, you can isolate your crypto
+implementation into a standalone program, and test that it works (e.g., to
+encrypt/decrypt a file or stdin/stdout). First test with small files/inputs,
+and then move on to very large files/inputs (which will require splitting the
+stream in smaller chunks). Similarly, you can isolate your networking code in
+the form of a simple TCP client/server, make sure it works, then add support
+for multiple concurrent connections, and finally add support for relaying
+accepted connections. After all the above pieces work, then you can start
+putting them together. This will allow you to debug and isolate any problems
+more easily.
+
+5) Similarly, for testing, you can first try to manually provide some data to
+your client-side program from stdin, and proxy it to a netcat instance on the
+server side (stdin -> jumproxy-client -> jumproxy-server -> netcat). Once
+this works, you can try sending/receiving some binary data (cat file |
+jumproxy-client -> ...). Once this works, you can use netcat also at the
+client side (in place of SSH), and then finally move on to the SSH use case.
+Remember, your tool's interface is just stdin/stdout client-side mode, and a TCP
+socket in server-side mode. SSH is just one use case.
+
+6) You can assume that the user will manually provide the same passphrase on
+both the client and the server.
+
+
+8) Some useful resources:
+
+https://go.dev/tour/welcome/1
+https://www.golang-book.com/books/intro
+https://www.developer.com/languages/intro-socket-programming-go/
+https://github.com/dariubs/GoBooks
+https://pkg.go.dev/net
+https://pkg.go.dev/crypto/cipher
+https://go.dev/src/crypto/cipher/example_test.go
+https://pkg.go.dev/golang.org/x/crypto/pbkdf2
+https://medium.com/@HackTheBridge/beginners-guide-to-netcat-for-hackers-55abe449991d
+https://www.imperialviolet.org/2015/05/16/aeads.html

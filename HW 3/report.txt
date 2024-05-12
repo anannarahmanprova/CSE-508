@@ -1,0 +1,13 @@
+Jumproxy tool is used for encrypting and decrypting TCP traffic between a client and a remote server. It uses the AES-GCM encryption algorithm. The program is implemented in Go
+The program is controlled via command-line arguments that specify the mode of operation and configuration details such as the listening port, password file for key derivation, and the destination address. This program uses AES  for encryption and authentication. PBKDF2 is used to derive a strong key from a passphrase. The handshake function handles data transfer, performing encryption or decryption as required. For server mode, the application accepts incoming connections and establishes a secure channel to the specified destination. In client mode, it connects to the target server and secures the data flow.
+
+For encryption, it continuously reads blocks of data from the source. For each block of data, it generates a new random nonce using a secure random number generator. The size of the nonce is determined by the GCM instance. It uses AES-GCM to encrypt the data block with the generated nonce. The encryption also involves the nonce itself being prefixed to the resulting ciphertext. First, it writes the length of the encrypted data (which includes the nonce) as a fixed-size prefix (4 bytes) to ensure that the receiver knows how much data to read. Then, it writes the encrypted data to the destination (dst).
+
+For decryption, it reads the first 4 bytes from the source (src) to determine the length of the encrypted data packet. It reads encrypted data based on the length and reads the entire encrypted data packet, which includes the nonce at the beginning. It separates the nonce from the rest of the encrypted data. It uses AES-GCM with the extracted nonce to decrypt the ciphertext. It writes the resulting plaintext data to the destination(dst).
+
+command line:
+-l  Reverse-proxy mode: listen for inbound connections on <listenport> and
+      relay them to <destination>:<port>
+
+-k  Use the ASCII text passphrase contained in <pwdfile>
+
