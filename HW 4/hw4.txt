@@ -1,0 +1,106 @@
+CSE508: Network Security, Spring 2024
+
+Homework 4: Network Scanning and Fingerprinting
+-------------------------------------------------------------------------------
+
+Submission deadline: 5/3/2024 11:59pm EDT
+Submission site: https://mycourses.stonybrook.edu/d2l/home/1135717
+
+
+In this assignment you will develop a useful TCP service fingerprinting tool,
+named 'synprobe', which performs a simple TCP SYN scan (similar to 'nmap
+-sS'), and for each identified open port, it attempts to collect additional
+information about the service in a best-effort way (similar to 'nmap -sV').
+You can implement synprobe in either Go or Python. Your tool will be tested on
+the 64-bit Kali Linux 2023.4 virtual machine we have used in previous
+assignments, so make sure your code works in this environment.
+
+Your program should conform to the following specification:
+
+synprobe [-p port_range] target 
+
+  -p  The range of ports to be scanned (just a single number for one port,
+      or a port range in the form X-Y for multiple ports).
+
+<target> is the IP address of a single host to be scanned (no need to
+implement scanning of a whole subnet).
+
+By default, if '-p' is not provided, the tool should scan only for the
+following commonly used TCP ports: 21, 22, 23, 25, 80, 110, 143, 443, 587,
+853, 993, 3389, 8080.
+
+After SYN-scanning the specified ports of the given host, synprobe attempts to
+connect to all the identified open ports, and either i) print the first 1024
+bytes returned by the server (server-initiated dialog), or ii) in case the
+server doesn't send any data after 3 seconds, try to elicit a response by
+sending a series of probe requests (and if a probe request succeeds, again
+print the first 1024 bytes returned). You should not identify services based
+on the port number alone (e.g., an SSH server may be running on port 443, or a
+web server on port 22).
+
+To identify client-initiated services (step ii), synprobe should try the
+following two probe requests over both TCP and TLS:
+
+    GET request: GET / HTTP/1.0\r\n\r\n
+  Generic lines: \r\n\r\n\r\n\r\n
+
+This means that synprobe should be able to distinguish between the following
+possible states of an open port:
+1) TCP server-initiated (server banner was immediately returned over TCP)
+2) TLS server-initiated (server banner was immediately returned over TLS)
+3) HTTP server (GET request over TCP successfully elicited a response)
+4) HTTPS server (GET request over TLS successfully elicited a response)
+5) Generic TCP server (Generic lines over TCP may or may not elicit a response)
+6) Generic TLS server (Generic lines over TLS may or may not elicit a response)
+
+For each identified open port, synprobe should print the port number, the type
+of port (1-6 above), and up to 1024 bytes of received data (if any).
+
+
+What to submit:
+
+A tarball (.tar.gz) with:
+- The synprobe tool, including all source code and installation instructions
+  for any dependencies.
+- An ASCII file named README with a brief description of your program and
+  some example output from test runs.
+
+
+Hints:
+
+1) For client-initiated services, think about the order of the probes so that
+all possible cases are covered (e.g., the tool should be able to distinguish
+between a generic TLS vs. a generic TCP server, given that a TLS server *is*
+also a TCP server).
+
+2) You can implement individual SYN scanning and service fingerprinting steps,
+or combine both in one step. Describe your design decisions in the README.
+
+3) For testing, you can use netcat to connect to TCP servers and see the
+returned banner or elicit responses, while you can use openssl to do the same
+for TLS servers. Here are some examples:
+
+TCP server-initiated:
+nc ftp.dlptest.com 21
+nc smtp.gmail.com 25
+nc compute.cs.stonybrook.edu 130
+
+TCP client-initiated:
+nc www.cs.stonybrook.edu 80   # type "GET / HTTP/1.0" and press 'enter' twice
+
+TLS server-initiated:
+openssl s_client -connect imap.gmail.com:993
+openssl s_client -connect smtp.gmail.com:465
+
+TLS client-initiated:
+openssl s_client -connect www.cs.stonybrook.edu:443   # type "GET / HTTP/1.0" and press 'enter' twice
+openssl s_client -connect 8.8.8.8:853   # press 'enter' four times
+
+3) When printing the response, replace non-printable bytes with a dot
+('.') - otherwise binary protocols will clutter the console. Alternatively,
+you can implement a nicer HEX+ASCII output similar to 'hexdump -C'.
+
+4) Except careful single-port tests like in the above examples, you should
+avoid massively scanning public hosts, and instead you should concentrate your
+testing on locally running VMs. For example, you can start some services on
+Kali and then scan them.
